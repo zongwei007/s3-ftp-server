@@ -24,28 +24,28 @@ class S3FileSystemViewTest {
     }
 
     @Test
-    void testGetHomeDirectory(S3Client client) throws Exception {
+    void testGetHomeDirectory(S3Client client) {
         client.putObject(req -> req.bucket(BUCKET).key("a/b/1"), RequestBody.fromString("1"));
 
         S3FileSystemView systemView = new S3FileSystemView(client, BUCKET, "", user);
 
         assertNotNull(systemView.getHomeDirectory());
-        assertEquals("", systemView.getHomeDirectory().getAbsolutePath());
+        assertEquals("/", systemView.getHomeDirectory().getAbsolutePath());
 
         systemView.changeWorkingDirectory("a/b");
-        assertEquals("", systemView.getHomeDirectory().getAbsolutePath());
+        assertEquals("/", systemView.getHomeDirectory().getAbsolutePath());
 
         systemView = new S3FileSystemView(client, BUCKET, "a", user);
 
         assertNotNull(systemView.getHomeDirectory());
-        assertEquals("a", systemView.getHomeDirectory().getAbsolutePath());
+        assertEquals("a/", systemView.getHomeDirectory().getAbsolutePath());
 
         systemView.changeWorkingDirectory("b");
-        assertEquals("a", systemView.getHomeDirectory().getAbsolutePath());
+        assertEquals("a/", systemView.getHomeDirectory().getAbsolutePath());
     }
 
     @Test
-    void testChangeWorkingDirectory(S3Client client) throws Exception {
+    void testChangeWorkingDirectory(S3Client client) {
         client.putObject(req -> req.bucket(BUCKET).key("1.txt"), RequestBody.fromString("1"));
         client.putObject(req -> req.bucket(BUCKET).key("a/2.txt"), RequestBody.fromString("2"));
         client.putObject(req -> req.bucket(BUCKET).key("a/3"), RequestBody.fromString("3"));
@@ -71,26 +71,26 @@ class S3FileSystemViewTest {
     }
 
     @Test
-    void testGetWorkingDirectory(S3Client client) throws Exception {
+    void testGetWorkingDirectory(S3Client client) {
         client.putObject(req -> req.bucket(BUCKET).key("a/b/1"), RequestBody.fromString("1"));
 
         S3FileSystemView systemView = new S3FileSystemView(client, BUCKET, "", user);
 
         assertNotNull(systemView.getWorkingDirectory());
-        assertEquals("", systemView.getWorkingDirectory().getAbsolutePath());
+        assertEquals("/", systemView.getWorkingDirectory().getAbsolutePath());
 
         systemView.changeWorkingDirectory("/a/b");
-        assertEquals("a/b", systemView.getWorkingDirectory().getAbsolutePath());
+        assertEquals("a/b/", systemView.getWorkingDirectory().getAbsolutePath());
 
         systemView.changeWorkingDirectory("/a");
-        assertEquals("a", systemView.getWorkingDirectory().getAbsolutePath());
+        assertEquals("a/", systemView.getWorkingDirectory().getAbsolutePath());
 
         systemView.changeWorkingDirectory("b");
-        assertEquals("a/b", systemView.getWorkingDirectory().getAbsolutePath());
+        assertEquals("a/b/", systemView.getWorkingDirectory().getAbsolutePath());
     }
 
     @Test
-    void testGetFile(S3Client client) throws Exception {
+    void testGetFile(S3Client client) {
         client.putObject(req -> req.bucket(BUCKET).key("a/b/1"), RequestBody.fromString("1"));
 
         S3FileSystemView systemView = new S3FileSystemView(client, BUCKET, "", user);

@@ -43,4 +43,8 @@ public final class PathBuilder {
 
         return String.join("/", result);
     }
+
+    public String buildDirPath() {
+        return build() + "/";
+    }
 }
