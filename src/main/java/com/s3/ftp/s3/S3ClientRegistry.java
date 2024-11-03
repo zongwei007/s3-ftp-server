@@ -15,7 +15,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-public class S3ClientRegistry {
+public final class S3ClientRegistry {
 
     private final Map<String, Supplier<S3ClientBuilder>> clientProviders;
 

@@ -15,7 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
-public class S3FTPServer {
+public final class S3FTPServer {
 
     private static final String DEFAULT_LISTENER_NAME = "default";
 

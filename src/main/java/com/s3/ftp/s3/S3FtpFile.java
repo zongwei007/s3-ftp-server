@@ -9,13 +9,15 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-public class S3FtpFile implements FtpFile {
+public final class S3FtpFile implements FtpFile {
 
     private final S3Client client;
 
@@ -106,7 +108,9 @@ public class S3FtpFile implements FtpFile {
         }
 
         if (isDirectory()) {
-            return listFiles().stream()
+            return Optional.ofNullable(listFiles())
+                    .map(Collection::stream)
+                    .orElse(Stream.of())
                     .allMatch(v -> v.getAbsolutePath().equals(getAbsolutePath()));
         }
 
@@ -240,7 +244,7 @@ public class S3FtpFile implements FtpFile {
     }
 
     @Override
-    public OutputStream createOutputStream(long offset) {
+    public OutputStream createOutputStream(long offset) throws IOException {
         return new S3OutputStream(client, bucket, key, offset);
     }
 

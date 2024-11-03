@@ -7,7 +7,7 @@ import org.apache.ftpserver.ftplet.FtpException;
 import org.apache.ftpserver.ftplet.User;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 
-public class S3FileSystemFactory implements FileSystemFactory {
+public final class S3FileSystemFactory implements FileSystemFactory {
 
     private final S3ClientRegistry clientRegister;
 

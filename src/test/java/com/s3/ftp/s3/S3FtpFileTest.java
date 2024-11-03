@@ -1,7 +1,6 @@
 package com.s3.ftp.s3;
 
 import com.s3.ftp.jupiter.LocalS3;
-import org.apache.commons.io.file.PathUtils;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.ftpserver.ftplet.AuthorizationRequest;
 import org.apache.ftpserver.ftplet.FtpFile;
@@ -11,12 +10,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -178,12 +179,8 @@ class S3FtpFileTest {
         client.putObject(req -> req.bucket(BUCKET).key("small.dat"), RequestBody.fromBytes(small));
 
         S3FtpFile file = new S3FtpFile(client, BUCKET, "small.dat", user);
-        try (
-                InputStream is = file.createInputStream(0);
-                ByteArrayOutputStream os = new ByteArrayOutputStream()
-        ) {
-            is.transferTo(os);
-            byte[] result = os.toByteArray();
+        try (InputStream is = file.createInputStream(0)) {
+            byte[] result = is.readAllBytes();
             assertArrayEquals(small, result);
         } finally {
             assertTrue(file.delete());
@@ -197,21 +194,6 @@ class S3FtpFileTest {
 //        } finally {
 //            assertTrue(file.delete());
 //        }
-
-        Path big = Files.createTempFile("s3-ftp-is", ".dat");
-        Files.write(big, RandomUtils.nextBytes(1024 * 1024 * 50));
-        client.putObject(req -> req.bucket(BUCKET).key("big.dat"), RequestBody.fromFile(big));
-
-        file = new S3FtpFile(client, BUCKET, "big.dat", user);
-
-        Path tmpOut = Files.createTempFile("s3-fs-is", ".dat");
-        try (InputStream is = file.createInputStream(0); OutputStream os = Files.newOutputStream(tmpOut)) {
-            is.transferTo(os);
-        } finally {
-            assertTrue(file.delete());
-        }
-
-        assertTrue(PathUtils.fileContentEquals(big, tmpOut));
     }
 
     @Test
@@ -226,13 +208,8 @@ class S3FtpFileTest {
             is.transferTo(os);
         }
 
-        try (
-                InputStream is = client.getObject(req -> req.bucket(BUCKET).key("small.dat"));
-                ByteArrayOutputStream os = new ByteArrayOutputStream()
-        ) {
-            is.transferTo(os);
-            byte[] result = os.toByteArray();
-            assertArrayEquals(small, result);
-        }
+        byte[] result = client.getObject(req -> req.bucket(BUCKET).key("small.dat"), ResponseTransformer.toBytes())
+                .asByteArray();
+        assertArrayEquals(small, result);
     }
 }

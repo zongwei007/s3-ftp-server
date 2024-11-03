@@ -10,7 +10,7 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.List;
 
-public class S3FileSystemView implements FileSystemView {
+public final class S3FileSystemView implements FileSystemView {
 
     private final S3Client client;
 
