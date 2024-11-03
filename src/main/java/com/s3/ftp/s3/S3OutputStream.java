@@ -4,8 +4,10 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -14,6 +16,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class S3OutputStream extends OutputStream {
+
+    private static final int OFFSET_LIMIT = 1024 * 1024 * 20;
+
+    private static final int WRITE_BUFFER_SIZE = 1024 * 1024 * 10;
 
     private final S3Client client;
 
@@ -25,20 +31,25 @@ final class S3OutputStream extends OutputStream {
 
     private final ByteBuffer writeBuffer;
 
+    private long offset;
+
     private String uploadId;
 
     private int uploadPartNumber = 0;
 
     private List<CompletedPart> completedParts;
 
-    //TODO offset
-    public S3OutputStream(S3Client client, String bucket, String key, @SuppressWarnings("unused") long offset) throws IOException {
+    public S3OutputStream(S3Client client, String bucket, String key, long offset) throws IOException {
         this.client = client;
         this.bucket = bucket;
         this.key = key;
         this.contentType = Files.probeContentType(Path.of(key));
         //TODO configuration
-        this.writeBuffer = ByteBuffer.allocate(1024 * 1024 * 10);
+        this.writeBuffer = ByteBuffer.allocate(WRITE_BUFFER_SIZE);
+        this.offset = offset;
+        if (offset > OFFSET_LIMIT) {
+            throw new IOException("offset over limit: %s byte".formatted(OFFSET_LIMIT));
+        }
     }
 
     @Override
@@ -48,24 +59,17 @@ final class S3OutputStream extends OutputStream {
 
     @Override
     public void write(byte[] bytes, int off, int len) throws IOException {
-        try {
-            int size = len - off;
-            if (writeBuffer.remaining() >= size) {
-                writeBuffer.put(bytes, off, len);
-            } else {
-                int remaining = writeBuffer.remaining();
-                writeBuffer.put(bytes, off, remaining);
-                appendMultipartObject();
-                writeBuffer.rewind();
-                writeBuffer.put(bytes, off + remaining, len - remaining);
-            }
+        if (offset != 0) {
+            this.offset = 0;
 
-            if (writeBuffer.remaining() == 0) {
-                appendMultipartObject();
+            try (InputStream is = client.getObject(req -> req.bucket(bucket).key(key))) {
+                is.transferTo(this);
+            } catch (NoSuchKeyException e) {
+                throw new IOException("file %s not found".formatted(key), e);
             }
-        } catch (IndexOutOfBoundsException e) {
-            throw new IOException(e);
         }
+
+        writeToBuffer(bytes, off, len);
     }
 
     @Override
@@ -81,6 +85,27 @@ final class S3OutputStream extends OutputStream {
     @Override
     public void flush() {
         if (uploadId != null) {
+            appendMultipartObject();
+        }
+    }
+
+    private void writeToBuffer(byte[] bytes, int off, int len) throws IOException {
+        try {
+            int size = len - off;
+            if (writeBuffer.remaining() >= size) {
+                writeBuffer.put(bytes, off, len);
+            } else {
+                int remaining = writeBuffer.remaining();
+                writeBuffer.put(bytes, off, remaining);
+                appendMultipartObject();
+                writeBuffer.rewind();
+                writeBuffer.put(bytes, off + remaining, len - remaining);
+            }
+        } catch (IndexOutOfBoundsException e) {
+            throw new IOException(e);
+        }
+
+        if (writeBuffer.remaining() == 0) {
             appendMultipartObject();
         }
     }

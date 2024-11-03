@@ -7,6 +7,8 @@ import org.apache.commons.lang3.RandomUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.IOException;
@@ -14,6 +16,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -70,4 +73,20 @@ class S3OutputStreamTest {
         assertTrue(PathUtils.fileContentEquals(src, tmpOut));
     }
 
+    @Test
+    void testAppendWrite(S3Client client) throws IOException {
+        byte[] src = RandomUtils.nextBytes(1024 * 1024 * 10);
+        byte[] firstRange = Arrays.copyOfRange(src, 0, 1024 * 1024);
+        byte[] secondRange = Arrays.copyOfRange(src, 1024 * 1024, src.length);
+        client.putObject(req -> req.bucket(BUCKET).key("part.dat"), RequestBody.fromBytes(firstRange));
+
+        try (S3OutputStream os = new S3OutputStream(client, BUCKET, "part.dat", 1024 * 1024)) {
+            os.write(secondRange);
+        }
+
+        byte[] result = client.getObject(req -> req.bucket(BUCKET).key("part.dat"), ResponseTransformer.toBytes())
+                .asByteArray();
+        client.deleteObject(req -> req.bucket(BUCKET).key("part.dat"));
+        assertArrayEquals(src, result);
+    }
 }
