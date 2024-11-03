@@ -1,5 +1,6 @@
 package com.s3.ftp.s3;
 
+import com.s3.ftp.config.GlobalConfiguration;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -16,10 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class S3OutputStream extends OutputStream {
-
-    private static final int OFFSET_LIMIT = 1024 * 1024 * 20;
-
-    private static final int WRITE_BUFFER_SIZE = 1024 * 1024 * 10;
 
     private final S3Client client;
 
@@ -44,11 +41,10 @@ final class S3OutputStream extends OutputStream {
         this.bucket = bucket;
         this.key = key;
         this.contentType = Files.probeContentType(Path.of(key));
-        //TODO configuration
-        this.writeBuffer = ByteBuffer.allocate(WRITE_BUFFER_SIZE);
+        this.writeBuffer = ByteBuffer.allocate(GlobalConfiguration.writeBufferSize);
         this.offset = offset;
-        if (offset > OFFSET_LIMIT) {
-            throw new IOException("offset over limit: %s byte".formatted(OFFSET_LIMIT));
+        if (offset > GlobalConfiguration.maxAppendOffsetSize) {
+            throw new IOException("offset over limit: %s byte".formatted(GlobalConfiguration.maxAppendOffsetSize));
         }
     }
 

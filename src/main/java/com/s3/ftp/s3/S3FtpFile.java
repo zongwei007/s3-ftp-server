@@ -1,5 +1,6 @@
 package com.s3.ftp.s3;
 
+import com.s3.ftp.config.GlobalConfiguration;
 import org.apache.ftpserver.ftplet.FtpFile;
 import org.apache.ftpserver.ftplet.User;
 import org.apache.ftpserver.usermanager.impl.WriteRequest;
@@ -227,9 +228,9 @@ public final class S3FtpFile implements FtpFile {
 
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(bucket)
-                //TODO configuration
-                .maxKeys(10000)
+                .maxKeys(GlobalConfiguration.maxListKeysLimit)
                 .delimiter("/");
+
         if (!key.equals("/")) {
             builder.prefix(key);
         }
