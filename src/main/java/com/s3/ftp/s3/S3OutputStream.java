@@ -72,9 +72,10 @@ final class S3OutputStream extends OutputStream {
     public void close() {
         if (uploadId == null) {
             putObjectSingle();
-        } else {
-            appendMultipartObject();
+            return;
         }
+
+        appendMultipartObject();
         completeMultipartUpload();
     }
 
@@ -87,8 +88,7 @@ final class S3OutputStream extends OutputStream {
 
     private void writeToBuffer(byte[] bytes, int off, int len) throws IOException {
         try {
-            int size = len - off;
-            if (writeBuffer.remaining() >= size) {
+            if (writeBuffer.remaining() >= len - off) {
                 writeBuffer.put(bytes, off, len);
             } else {
                 int remaining = writeBuffer.remaining();
@@ -99,10 +99,6 @@ final class S3OutputStream extends OutputStream {
             }
         } catch (IndexOutOfBoundsException e) {
             throw new IOException(e);
-        }
-
-        if (writeBuffer.remaining() == 0) {
-            appendMultipartObject();
         }
     }
 
