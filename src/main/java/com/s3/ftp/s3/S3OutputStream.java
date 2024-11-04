@@ -6,6 +6,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,10 +14,13 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 final class S3OutputStream extends OutputStream {
+
+    private static final int MULTIPART_SIZE_MIN = 1024 * 1024 * 5;
 
     private final S3Client client;
 
@@ -34,7 +38,9 @@ final class S3OutputStream extends OutputStream {
 
     private int uploadPartNumber = 0;
 
-    private List<CompletedPart> completedParts;
+    private Map<Integer, String> completedParts;
+
+    private boolean closed = false;
 
     public S3OutputStream(S3Client client, String bucket, String key, long offset) throws IOException {
         this.client = client;
@@ -54,7 +60,7 @@ final class S3OutputStream extends OutputStream {
     }
 
     @Override
-    public void write(byte[] bytes, int off, int len) throws IOException {
+    public synchronized void write(byte[] bytes, int off, int len) throws IOException {
         if (offset != 0) {
             this.offset = 0;
 
@@ -65,28 +71,6 @@ final class S3OutputStream extends OutputStream {
             }
         }
 
-        writeToBuffer(bytes, off, len);
-    }
-
-    @Override
-    public void close() {
-        if (uploadId == null) {
-            putObjectSingle();
-            return;
-        }
-
-        appendMultipartObject();
-        completeMultipartUpload();
-    }
-
-    @Override
-    public void flush() {
-        if (uploadId != null) {
-            appendMultipartObject();
-        }
-    }
-
-    private void writeToBuffer(byte[] bytes, int off, int len) throws IOException {
         try {
             if (writeBuffer.remaining() >= len - off) {
                 writeBuffer.put(bytes, off, len);
@@ -102,9 +86,39 @@ final class S3OutputStream extends OutputStream {
         }
     }
 
-    private void putObjectSingle() {
-        writeBuffer.flip();
+    @Override
+    public void close() {
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
 
+            this.closed = true;
+        }
+
+        if (uploadId == null) {
+            putObjectSingle();
+            return;
+        }
+
+        appendMultipartObject();
+        completeMultipartUpload();
+    }
+
+    @Override
+    public synchronized void flush() {
+        if (writeBuffer.position() > MULTIPART_SIZE_MIN) {
+            appendMultipartObject();
+            writeBuffer.rewind();
+        }
+    }
+
+    private void putObjectSingle() {
+        if (writeBuffer.position() == 0) {
+            return;
+        }
+
+        writeBuffer.flip();
         client.putObject(
                 req -> req.bucket(bucket).key(key).contentType(contentType),
                 RequestBody.fromByteBuffer(writeBuffer)
@@ -113,34 +127,32 @@ final class S3OutputStream extends OutputStream {
 
     private void appendMultipartObject() {
         if (uploadId == null) {
-            CreateMultipartUploadResponse resp = client.createMultipartUpload(
+            CreateMultipartUploadResponse cResp = client.createMultipartUpload(
                     req -> req.bucket(bucket).key(key).contentType(contentType)
             );
 
-            this.uploadId = resp.uploadId();
-            this.completedParts = new ArrayList<>();
-        }
-
-        if (writeBuffer.position() == 0) {
-            return;
+            this.uploadId = cResp.uploadId();
+            this.completedParts = new HashMap<>();
         }
 
         writeBuffer.flip();
         this.uploadPartNumber += 1;
-        client.uploadPart(
+        UploadPartResponse pResp = client.uploadPart(
                 req -> req.bucket(bucket).key(key).uploadId(uploadId).partNumber(uploadPartNumber),
                 RequestBody.fromByteBuffer(writeBuffer)
         );
-        completedParts.add(CompletedPart.builder().partNumber(uploadPartNumber).build());
+        completedParts.put(uploadPartNumber, pResp.eTag());
     }
 
     private void completeMultipartUpload() {
-        if (uploadId != null && !completedParts.isEmpty()) {
-            client.completeMultipartUpload(req -> req.bucket(bucket)
-                    .key(key)
-                    .uploadId(uploadId)
-                    .multipartUpload(mu -> mu.parts(completedParts))
-            );
-        }
+        List<CompletedPart> parts = completedParts.entrySet().stream()
+                .map(ele -> CompletedPart.builder().partNumber(ele.getKey()).eTag(ele.getValue()).build())
+                .toList();
+
+        client.completeMultipartUpload(req -> req.bucket(bucket)
+                .key(key)
+                .uploadId(uploadId)
+                .multipartUpload(mu -> mu.parts(parts))
+        );
     }
 }

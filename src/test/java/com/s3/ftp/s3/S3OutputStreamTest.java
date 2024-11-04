@@ -18,8 +18,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 @SuppressWarnings("JUnitMalformedDeclaration")
 @LocalS3(mode = LocalS3Mode.PERSISTENCE, dataPath = "./target/s3")
@@ -49,6 +48,20 @@ class S3OutputStreamTest {
             assertArrayEquals(src, is.readAllBytes());
         } finally {
             client.deleteObject(req -> req.bucket(BUCKET).key("small.dat"));
+        }
+
+        src = new byte[10];
+        try (S3OutputStream os = new S3OutputStream(client, BUCKET, "tiny.dat", 0)) {
+            for (int i = 0; i < 10; i++) {
+                src[i] = (byte) i;
+                os.write(i);
+            }
+        }
+
+        try (InputStream is = client.getObject(req -> req.bucket(BUCKET).key("tiny.dat"))) {
+            assertArrayEquals(src, is.readAllBytes());
+        } finally {
+            client.deleteObject(req -> req.bucket(BUCKET).key("tiny.dat"));
         }
     }
 
@@ -88,5 +101,45 @@ class S3OutputStreamTest {
                 .asByteArray();
         client.deleteObject(req -> req.bucket(BUCKET).key("part.dat"));
         assertArrayEquals(src, result);
+
+        assertThrows(IOException.class, () -> new S3OutputStream(client, BUCKET, "fake.dat", 1024 * 1024 * 500));
+
+        try (S3OutputStream os = new S3OutputStream(client, BUCKET, "fake.dat", 1024 * 1024)) {
+            assertThrows(IOException.class, () -> os.write(new byte[]{1, 2, 3}));
+        }
+    }
+
+    @Test
+    void testFlush(S3Client client) throws IOException {
+        byte[] src = RandomUtils.nextBytes(1024 * 1024 * 10);
+
+        try (S3OutputStream os = new S3OutputStream(client, BUCKET, "flush.dat", 0)) {
+            os.write(src, 0, 1024 * 1024 * 6);
+            os.flush();
+            os.write(src, 1024 * 1024 * 6, 1024 * 1024 * 4);
+        }
+
+        try (InputStream is = client.getObject(req -> req.bucket(BUCKET).key("flush.dat"))) {
+            assertArrayEquals(src, is.readAllBytes());
+        }
+
+        src = RandomUtils.nextBytes(1024 * 1024);
+        try (S3OutputStream os = new S3OutputStream(client, BUCKET, "flush.dat", 0)) {
+            os.write(src);
+            os.flush();
+        }
+
+        try (InputStream is = client.getObject(req -> req.bucket(BUCKET).key("flush.dat"))) {
+            assertArrayEquals(src, is.readAllBytes());
+        } finally {
+            client.deleteObject(req -> req.bucket(BUCKET).key("flush.dat"));
+        }
+    }
+
+    @Test
+    void testClose(S3Client client) throws IOException {
+        S3OutputStream fake = new S3OutputStream(client, BUCKET, "fake.dat", 0);
+        fake.close();
+        fake.close();
     }
 }
