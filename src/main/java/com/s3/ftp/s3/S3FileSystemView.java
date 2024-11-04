@@ -25,7 +25,7 @@ public final class S3FileSystemView implements FileSystemView {
     public S3FileSystemView(S3Client client, String bucket, String path, User user) {
         this.client = client;
         this.bucket = bucket;
-        this.rootPath = PathBuilder.from(path).buildDirPath();
+        this.rootPath = PathBuilder.root(path).buildDirPath();
         this.user = user;
     }
 
@@ -36,20 +36,15 @@ public final class S3FileSystemView implements FileSystemView {
 
     @Override
     public FtpFile getWorkingDirectory() {
-        String workingPath = PathBuilder.from(rootPath).resolve(currentPath).buildDirPath();
+        String workingPath = PathBuilder.root(rootPath).resolve(currentPath).buildDirPath();
         return new S3FtpFile(client, bucket, workingPath, user);
     }
 
     @Override
     public boolean changeWorkingDirectory(String dir) {
-        PathBuilder pathBuilder = PathBuilder.from(rootPath);
-        if (!dir.isEmpty() && dir.charAt(0) != '/') {
-            pathBuilder.resolve(currentPath);
-        }
-
-        String workingPath = pathBuilder.resolve(dir).buildDirPath();
+        String workingPath =  PathBuilder.root(rootPath).resolve(currentPath).resolve(dir).buildDirPath();
         if (workingPath.equals(rootPath)) {
-            this.currentPath = dir;
+            this.currentPath = rootPath;
             return true;
         }
 
@@ -69,7 +64,8 @@ public final class S3FileSystemView implements FileSystemView {
 
     @Override
     public FtpFile getFile(String path) {
-        String filePath = PathBuilder.from(rootPath).resolve(currentPath).resolve(path).build();
+        PathBuilder builder = PathBuilder.root(rootPath).resolve(currentPath).resolve(path);
+        String filePath = path.endsWith("/") ? builder.buildDirPath() : builder.build();
         return new S3FtpFile(client, bucket, filePath, user);
     }
 
