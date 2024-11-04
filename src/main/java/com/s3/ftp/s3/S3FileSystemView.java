@@ -5,7 +5,6 @@ import org.apache.ftpserver.ftplet.FileSystemView;
 import org.apache.ftpserver.ftplet.FtpFile;
 import org.apache.ftpserver.ftplet.User;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.List;
@@ -42,24 +41,20 @@ public final class S3FileSystemView implements FileSystemView {
 
     @Override
     public boolean changeWorkingDirectory(String dir) {
-        String workingPath =  PathBuilder.root(rootPath).resolve(currentPath).resolve(dir).buildDirPath();
-        if (workingPath.equals(rootPath)) {
+        String workingPath = PathBuilder.root(rootPath).resolve(currentPath).resolve(dir).buildDirPath();
+        if (rootPath.equals(workingPath)) {
             this.currentPath = rootPath;
             return true;
         }
 
-        try {
-            List<S3Object> contents = client.listObjectsV2(req -> req.bucket(bucket).prefix(workingPath))
-                    .contents();
-            if (!contents.isEmpty()) {
-                this.currentPath = workingPath;
-                return true;
-            }
-
-            return false;
-        } catch (NoSuchKeyException e) {
-            return false;
+        List<S3Object> contents = client.listObjectsV2(req -> req.bucket(bucket).prefix(workingPath).maxKeys(1))
+                .contents();
+        if (!contents.isEmpty()) {
+            this.currentPath = workingPath;
+            return true;
         }
+
+        return false;
     }
 
     @Override

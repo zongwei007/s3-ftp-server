@@ -99,6 +99,9 @@ class S3FileSystemViewTest {
         assertEquals("a/b/1", systemView.getFile("a/b/1").getAbsolutePath());
         assertEquals("a/b/2", systemView.getFile("a/b/2").getAbsolutePath());
 
+        assertNotNull(systemView.getFile("a/b/"));
+        assertTrue(systemView.getFile("a/b/").isDirectory());
+
         systemView.changeWorkingDirectory("a/b");
         assertNotNull(systemView.getFile("1"));
         assertEquals("a/b/1", systemView.getFile("1").getAbsolutePath());
@@ -109,5 +112,10 @@ class S3FileSystemViewTest {
     void testDispose(S3Client client) {
         S3FileSystemView systemView = new S3FileSystemView(client, BUCKET, "", user);
         systemView.dispose();
+    }
+
+    @Test
+    void testIsRandomAccessible(S3Client client) {
+        assertTrue(new S3FileSystemView(client, BUCKET, "", user).isRandomAccessible());
     }
 }
