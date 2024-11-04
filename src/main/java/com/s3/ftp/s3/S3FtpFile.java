@@ -8,11 +8,13 @@ import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -20,24 +22,32 @@ import java.util.stream.Stream;
 
 public final class S3FtpFile implements FtpFile {
 
+    private static final Instant LAST_MODIFIED_EMPTY = Instant.ofEpochSecond(0);
+
     private final S3Client client;
 
     private final String bucket;
 
     private final String key;
 
+    private final Instant lastModified;
+
+    private final long size;
+
     private final User user;
 
     private Boolean exist;
 
-    private Long lastModified;
-
-    private Long size;
-
     public S3FtpFile(S3Client client, String bucket, String key, User user) {
+        this(client, bucket, key, LAST_MODIFIED_EMPTY, 0L, user);
+    }
+
+    public S3FtpFile(S3Client client, String bucket, String key, Instant lastModified, Long size, User user) {
         this.client = client;
         this.bucket = bucket;
         this.key = key;
+        this.lastModified = lastModified;
+        this.size = size;
         this.user = user;
     }
 
@@ -76,13 +86,9 @@ public final class S3FtpFile implements FtpFile {
     @Override
     public boolean doesExist() {
         if (exist == null) {
-            try {
-                this.exist = isFile()
-                        ? requestObjectHead().isPresent()
-                        : !client.listObjectsV2(req -> req.bucket(bucket).prefix(key)).contents().isEmpty();
-            } catch (NoSuchKeyException e) {
-                this.exist = false;
-            }
+            this.exist = !client.listObjectsV2(req -> req.bucket(bucket).prefix(key).maxKeys(1))
+                    .contents()
+                    .isEmpty();
         }
 
         return exist;
@@ -135,13 +141,7 @@ public final class S3FtpFile implements FtpFile {
 
     @Override
     public long getLastModified() {
-        if (lastModified == null) {
-            this.lastModified = requestObjectHead()
-                    .map(v -> v.lastModified().getEpochSecond())
-                    .orElse(null);
-        }
-
-        return lastModified == null ? -1 : lastModified;
+        return lastModified.toEpochMilli();
     }
 
     @Override
@@ -151,35 +151,25 @@ public final class S3FtpFile implements FtpFile {
 
     @Override
     public long getSize() {
-        if (isDirectory()) {
-            return 0;
-        }
-
-        if (size == null) {
-            this.size = requestObjectHead().map(HeadObjectResponse::contentLength).orElse(null);
-        }
-
-        return size == null ? -1 : size;
+        return size;
     }
 
     @Override
     public Object getPhysicalFile() {
-        return "%s/%s".formatted(bucket, key);
+        return "/%s/%s".formatted(bucket, key);
     }
 
     @Override
     public boolean mkdir() {
-        String dirKey = key.endsWith("/") ? key : key + "/";
-
-        try {
-            client.putObject(
-                    req -> req.bucket(bucket).key(dirKey).contentType("application/x-directory"),
-                    RequestBody.empty()
-            );
-            return true;
-        } catch (AwsServiceException | SdkClientException e) {
+        if (!isDirectory()) {
             return false;
         }
+
+        client.putObject(
+                req -> req.bucket(bucket).key(key).contentType("application/x-directory"),
+                RequestBody.empty()
+        );
+        return true;
     }
 
     @Override
@@ -188,12 +178,8 @@ public final class S3FtpFile implements FtpFile {
             return false;
         }
 
-        try {
-            client.deleteObject(req -> req.bucket(bucket).key(key));
-            return true;
-        } catch (AwsServiceException | SdkClientException e) {
-            return false;
-        }
+        client.deleteObject(req -> req.bucket(bucket).key(key));
+        return true;
     }
 
     @Override
@@ -237,10 +223,11 @@ public final class S3FtpFile implements FtpFile {
         ListObjectsV2Response resp = client.listObjectsV2(builder.build());
 
         return Stream.concat(
-                        resp.commonPrefixes().stream().map(CommonPrefix::prefix),
-                        resp.contents().stream().map(S3Object::key)
+                        resp.commonPrefixes().stream()
+                                .map(v -> new S3FtpFile(client, bucket, v.prefix(), user)),
+                        resp.contents().stream()
+                                .map(v -> new S3FtpFile(client, bucket, v.key(), v.lastModified(), v.size(), user))
                 )
-                .map(key -> new S3FtpFile(client, bucket, key, user))
                 .toList();
     }
 
@@ -252,14 +239,6 @@ public final class S3FtpFile implements FtpFile {
     @Override
     public InputStream createInputStream(long offset) {
         return client.getObject(req -> req.bucket(bucket).key(key).range("%s-".formatted(offset)));
-    }
-
-    private Optional<HeadObjectResponse> requestObjectHead() {
-        try {
-            return Optional.of(client.headObject(req -> req.bucket(bucket).key(key)));
-        } catch (AwsServiceException | SdkClientException e) {
-            return Optional.empty();
-        }
     }
 
 }

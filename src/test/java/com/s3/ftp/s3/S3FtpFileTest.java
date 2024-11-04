@@ -18,6 +18,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,7 +47,7 @@ class S3FtpFileTest {
         User user = mock(User.class);
         when(user.getName()).thenReturn("user");
 
-        S3FtpFile file = new S3FtpFile(client, BUCKET, "a/1.txt", user);
+        S3FtpFile file = new S3FtpFile(client, BUCKET, "a/1.txt", Instant.now(), 1L, user);
 
         assertEquals("a/1.txt", file.getAbsolutePath());
         assertEquals("1.txt", file.getName());
@@ -58,15 +59,18 @@ class S3FtpFileTest {
         assertEquals(BUCKET, file.getGroupName());
         assertTrue(file.getLastModified() > -1);
         assertEquals(1, file.getSize());
-        assertEquals(BUCKET + "/a/1.txt", file.getPhysicalFile());
+        assertEquals(0, file.getLinkCount());
+        assertEquals("/%s/a/1.txt".formatted(BUCKET), file.getPhysicalFile());
 
         S3FtpFile dir = new S3FtpFile(client, BUCKET, "a/", user);
         assertTrue(dir.doesExist());
         assertTrue(dir.isDirectory());
         assertEquals(0, dir.getSize());
         assertEquals("a", dir.getName());
+        assertEquals(3, dir.getLinkCount());
 
         dir = new S3FtpFile(client, BUCKET, "b/", user);
+        assertTrue(dir.doesExist());
         assertTrue(dir.doesExist());
 
         dir = new S3FtpFile(client, BUCKET, "a/b/", user);
@@ -79,7 +83,7 @@ class S3FtpFileTest {
         when(user.getName()).thenReturn("user");
         when(user.authorize(Mockito.any(WriteRequest.class))).thenAnswer(iom -> {
             AuthorizationRequest argument = iom.getArgument(0);
-            if (argument instanceof WriteRequest wa && wa.getFile().startsWith(BUCKET + "/a/")) {
+            if (argument instanceof WriteRequest wa && wa.getFile().startsWith("/%s/a/".formatted(BUCKET))) {
                 return wa;
             }
             return null;
@@ -107,6 +111,8 @@ class S3FtpFileTest {
 
         file = new S3FtpFile(client, BUCKET, "/", user);
         assertFalse(file.isRemovable());
+
+        assertFalse(file.setLastModified(0));
     }
 
     @Test
@@ -119,6 +125,9 @@ class S3FtpFileTest {
         assertTrue(file.mkdir());
         assertNotNull(client.headObject(req -> req.bucket(BUCKET).key("c/")));
         assertTrue(file.delete());
+
+        file = new S3FtpFile(client, BUCKET, "d", user);
+        assertFalse(file.mkdir());
     }
 
     @Test
@@ -133,23 +142,41 @@ class S3FtpFileTest {
         assertTrue(file.delete());
         assertThrows(NoSuchKeyException.class, () -> client.headObject(req -> req.bucket(BUCKET).key("a/0.txt")));
         assertTrue(file.delete());
+
+        S3FtpFile dir = new S3FtpFile(client, BUCKET, "a/", user);
+        assertFalse(dir.delete());
     }
 
     @Test
     void testMove(S3Client client) {
         User user = mock(User.class);
         when(user.getName()).thenReturn("user");
-        when(user.authorize(any(AuthorizationRequest.class))).thenAnswer(iom -> iom.getArgument(0));
+        when(user.authorize(any(AuthorizationRequest.class))).thenAnswer(iom -> {
+            if (iom.getArgument(0) instanceof WriteRequest wr) {
+                if (wr.getFile().startsWith("/%s/a/".formatted(BUCKET))) {
+                    return wr;
+                }
+                if (wr.getFile().startsWith("/%s/c/".formatted(BUCKET))) {
+                    return wr;
+                }
+            }
+
+            return null;
+        });
 
         client.putObject(req -> req.bucket(BUCKET).key("a/0.txt"), RequestBody.fromString("0"));
 
         S3FtpFile src = new S3FtpFile(client, BUCKET, "a/0.txt", user);
         S3FtpFile dst = new S3FtpFile(client, BUCKET, "c/0.txt", user);
+        S3FtpFile fake = new S3FtpFile(client, BUCKET, "d/0.txt", user);
 
         assertTrue(src.move(dst));
         assertNotNull(client.headObject(req -> req.bucket(BUCKET).key("c/0.txt")));
         assertThrows(NoSuchKeyException.class, () -> client.headObject(req -> req.bucket(BUCKET).key("a/0.txt")));
         assertTrue(dst.delete());
+
+        assertFalse(src.move(fake));
+        assertFalse(fake.move(dst));
     }
 
     @Test
@@ -167,6 +194,8 @@ class S3FtpFileTest {
 // TODO
 //        assertEquals(2, files.size());
 //        assertArrayEquals(new String[]{"b", "1.txt"}, files.stream().map(FtpFile::getName).toArray(String[]::new));
+
+        assertNull(new S3FtpFile(client, BUCKET, "a/1.txt", user).listFiles());
     }
 
     @Test
