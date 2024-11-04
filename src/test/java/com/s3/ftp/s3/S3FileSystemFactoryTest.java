@@ -3,6 +3,7 @@ package com.s3.ftp.s3;
 import com.robothy.s3.rest.LocalS3;
 import org.apache.ftpserver.ftplet.FileSystemFactory;
 import org.apache.ftpserver.ftplet.FileSystemView;
+import org.apache.ftpserver.ftplet.FtpException;
 import org.apache.ftpserver.ftplet.User;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,7 +16,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URI;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -57,6 +58,8 @@ class S3FileSystemFactoryTest {
             fileSystemView.dispose();
         }
 
+        when(user.getHomeDirectory()).thenReturn("fake:test");
+        assertThrows(FtpException.class, () -> factory.createFileSystemView(user));
     }
 
 }
